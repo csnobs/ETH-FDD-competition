@@ -79,3 +79,20 @@ Target `y`: integer-valued, range **42–97**, mean ~70, **no missing, no negati
 
 All transforms must be **fit on the training split only** and applied to
 validation/test to avoid leakage.
+
+---
+
+## Measured results (5-fold CV R², `analysis/compare_pipelines.py`)
+
+The pipeline is implemented in `src/cleaning.py` as leak-safe sklearn transformers.
+
+| Pipeline | R² |
+|----------|----|
+| baseline (mean impute + OLS) | 0.179 ± 0.151 |
+| cleaned + OLS | 0.343 ± 0.073 |
+| cleaned + Ridge(α=1) | 0.344 ± 0.073 |
+| cleaned + Ridge(α=10) | **0.353 ± 0.072** |
+
+Cleaning roughly **doubles** the mean R² and cuts the variance ~2×. The baseline's
+large variance comes from the extreme-scale columns making OLS numerically unstable;
+robust scaling + winsorising removes it.
