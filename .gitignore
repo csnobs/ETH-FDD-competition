@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# Large derived data files (reproducible via analysis/export_clean.py)
+output/*_clean*.csv
