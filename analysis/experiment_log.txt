@@ -89,3 +89,89 @@ base Voting k=500                                R^2 = 0.5187 +/- 0.0395
 [RCV] + row aggregates k=505                     R^2 = 0.5043 +/- 0.0447
 ===== END RUN 6 =====
 
+
+===== EXPERIMENT 2a: KNN vs MEDIAN imputation (single 5-fold) =====
+
+-- preprocessing folds with median imputation --
+   fold 0 preprocessed
+   fold 1 preprocessed
+   fold 2 preprocessed
+   fold 3 preprocessed
+   fold 4 preprocessed
+-- scoring models (median) --
+   A: Ridge(10) k=100               median  R^2 = 0.3486 +/- 0.0691
+   B: HistGBM                       median  R^2 = 0.4595 +/- 0.0591
+   B: RandomForest(300)             median  R^2 = 0.4574 +/- 0.0360
+   B: ExtraTrees(400)               median  R^2 = 0.4719 +/- 0.0389
+   C: GradientBoosting              median  R^2 = 0.4918 +/- 0.0495
+   E: LightGBM                      median  R^2 = 0.4938 +/- 0.0522
+   E: XGBoost                       median  R^2 = 0.4927 +/- 0.0524
+   F: GB k=500                      median  R^2 = 0.4976 +/- 0.0445
+   F: XGB k=300                     median  R^2 = 0.5123 +/- 0.0385
+   G: Voting(GB+XGB+ET) k=500       median  R^2 = 0.5098 +/- 0.0415
+
+-- preprocessing folds with knn5 imputation --
+   fold 0 preprocessed
+   fold 1 preprocessed
+   fold 2 preprocessed
+   fold 3 preprocessed
+   fold 4 preprocessed
+-- scoring models (knn5) --
+   A: Ridge(10) k=100               knn5    R^2 = 0.3705 +/- 0.0482
+   B: HistGBM                       knn5    R^2 = 0.4588 +/- 0.0348
+   B: RandomForest(300)             knn5    R^2 = 0.4541 +/- 0.0364
+   B: ExtraTrees(400)               knn5    R^2 = 0.4674 +/- 0.0437
+   C: GradientBoosting              knn5    R^2 = 0.4917 +/- 0.0274
+   E: LightGBM                      knn5    R^2 = 0.4897 +/- 0.0486
+   E: XGBoost                       knn5    R^2 = 0.4930 +/- 0.0366
+   F: GB k=500                      knn5    R^2 = 0.4928 +/- 0.0398
+   F: XGB k=300                     knn5    R^2 = 0.5084 +/- 0.0425
+   G: Voting(GB+XGB+ET) k=500       knn5    R^2 = 0.5055 +/- 0.0403
+
+-- SUMMARY: median vs KNN (delta = knn - median) --
+   A: Ridge(10) k=100               median=0.3486  knn=0.3705  delta=+0.0219  <-- KNN better
+   B: HistGBM                       median=0.4595  knn=0.4588  delta=-0.0007
+   B: RandomForest(300)             median=0.4574  knn=0.4541  delta=-0.0032
+   B: ExtraTrees(400)               median=0.4719  knn=0.4674  delta=-0.0046
+   C: GradientBoosting              median=0.4918  knn=0.4917  delta=-0.0001
+   E: LightGBM                      median=0.4938  knn=0.4897  delta=-0.0040
+   E: XGBoost                       median=0.4927  knn=0.4930  delta=+0.0003  <-- KNN better
+   F: GB k=500                      median=0.4976  knn=0.4928  delta=-0.0049
+   F: XGB k=300                     median=0.5123  knn=0.5084  delta=-0.0039
+   G: Voting(GB+XGB+ET) k=500       median=0.5098  knn=0.5055  delta=-0.0043
+===== END EXPERIMENT 2a =====
+
+
+===== EXPERIMENT 2a CONFIRM: KNN vs median (RepeatedKFold 5x3) =====
+   A: Ridge(10) k=100       median  R^2 = 0.3356 +/- 0.0792
+   F: GB k=500              median  R^2 = 0.4845 +/- 0.0499
+   A: Ridge(10) k=100       knn5    R^2 = 0.3641 +/- 0.0557
+   F: GB k=500              knn5    R^2 = 0.4841 +/- 0.0545
+===== END CONFIRM =====
+
+
+===== EXPERIMENT 2b: outlier-row removal (single 5-fold) =====
+
+-- GB k=500 --
+   no removal         R^2 = 0.4976  (~0 rows removed)
+   iforest c=0.005    R^2 = 0.5049  (~5 rows removed)  delta=+0.0072  <-- better
+   iforest c=0.01     R^2 = 0.5035  (~10 rows removed)  delta=+0.0058  <-- better
+   lof c=0.005        R^2 = 0.5005  (~5 rows removed)  delta=+0.0029  <-- better
+   lof c=0.01         R^2 = 0.4912  (~10 rows removed)  delta=-0.0064
+
+-- Voting k=500 --
+   no removal         R^2 = 0.5098  (~0 rows removed)
+   iforest c=0.005    R^2 = 0.5150  (~5 rows removed)  delta=+0.0051  <-- better
+   iforest c=0.01     R^2 = 0.5091  (~10 rows removed)  delta=-0.0007
+   lof c=0.005        R^2 = 0.5082  (~5 rows removed)  delta=-0.0017
+   lof c=0.01         R^2 = 0.5078  (~10 rows removed)  delta=-0.0020
+===== END EXPERIMENT 2b =====
+
+
+===== EXPERIMENT 2b CONFIRM: iForest c=0.005 (RepeatedKFold 5x3) =====
+   GB k=500       no removal       R^2 = 0.4845 +/- 0.0499
+   GB k=500       iForest c=0.005  R^2 = 0.4878 +/- 0.0428
+   Voting k=500   no removal       R^2 = 0.5010 +/- 0.0425
+   Voting k=500   iForest c=0.005  R^2 = 0.5024 +/- 0.0392
+===== END CONFIRM =====
+
