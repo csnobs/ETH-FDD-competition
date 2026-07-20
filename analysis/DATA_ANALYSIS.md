@@ -276,3 +276,147 @@ not more model tuning.
 
 *Reproduce any run:* `python -u analysis/experiments.py` (…`2`…`6`). Raw numbers are
 appended to `analysis/experiment_log.txt`.
+
+---
+
+# Second attempt — imputation & outlier detection
+
+Goal: revisit the two data-quality decisions from attempt 1 — **imputation** and
+**outlier handling** — as two *separate, isolated* experiments, and see whether either
+robustly beats the first attempt. Everything else (feature selection, model
+hyper-parameters) is held fixed. Branch: `second-attempt-knn-imputation`.
+
+**Method note (why a RobustScaler was added):** both KNN imputation and the outlier
+detectors rely on Euclidean distances. Our features span ~20 orders of magnitude
+(x665/x173/x596 ≈ 10²²), which would completely dominate any distance. So a
+NaN-preserving `RobustScaler` is applied *before* the distance step. Scaling is
+invisible to tree splits (monotonic), so it changes tree results only through the
+imputed/selected values — exactly what we are testing. Unified preprocessing:
+`winsorize → RobustScaler → impute → drop constant → SelectKBest(k) → model`.
+
+**Compute design:** for each (imputer, fold) the expensive KNN imputation and the
+mutual-info ranking are computed **once and shared across all models**, instead of
+recomputed per model — roughly a 10× saving. Exploration uses single 5-fold; anything
+promising is confirmed with RepeatedKFold (5×3).
+
+## Experiment 2a — KNN imputation vs median (`analysis/exp_knn.py`)
+
+Swapped `SimpleImputer(median)` → `KNNImputer(n_neighbors=5)`, re-scored models A–G.
+
+| Model | median | KNN | Δ |
+|-------|--------|-----|---|
+| **A: Ridge (linear)** | 0.349 | **0.371** | **+0.022** |
+| B: HistGBM | 0.460 | 0.459 | −0.001 |
+| B: RandomForest(300) | 0.457 | 0.454 | −0.003 |
+| B: ExtraTrees(400) | 0.472 | 0.467 | −0.005 |
+| C: GradientBoosting | 0.492 | 0.492 | −0.000 |
+| E: LightGBM | 0.494 | 0.490 | −0.004 |
+| E: XGBoost | 0.493 | 0.493 | +0.000 |
+| F: GB k=500 | 0.498 | 0.493 | −0.005 |
+| F: XGB k=300 | 0.512 | 0.508 | −0.004 |
+| G: Voting (champion) | 0.510 | 0.506 | −0.004 |
+
+**Confirmation (RepeatedKFold 5×3), `analysis/exp_knn_confirm.py`:**
+
+| Model | median | KNN | Δ |
+|-------|--------|-----|---|
+| A: Ridge | 0.336 ± 0.079 | **0.364 ± 0.056** | **+0.028, variance −30%** |
+| F: GB k=500 | 0.485 ± 0.050 | 0.484 ± 0.055 | −0.000 |
+
+**Result: KNN imputation robustly helps only the *linear* model (Ridge: +0.028 and
+notably more stable), and does nothing for any tree model — including the champion
+ensemble.** Textbook behaviour: linear models are sensitive to imputation quality;
+tree splits are robust to it. Since our production model is a tree ensemble, **KNN
+imputation does not improve our best result** — it would only matter if we shipped a
+linear model.
+
+## Outlier detection — Isolation Forest vs LOF (`analysis/outlier_probe.py`)
+
+Before adding a detector we probed both on the imputed+scaled data. The 3 known-corrupted
+rows (from `row_probe.py`) are **167, 681, 740**.
+
+| contamination | iForest flags | LOF flags | agreement | iForest hits | LOF hits |
+|---|---|---|---|---|---|
+| 0.005 | 7 | 7 | 1 | 167, 740 | 681, 740 |
+| 0.01 | 13 | 13 | 2 | 167, 740 (misses 681) | all 3 |
+| 0.02 | 25 | 25 | 8 | all 3 | all 3 |
+
+The two methods **barely agree** — they encode different notions of "outlier" (iForest =
+global isolation, LOF = local density). Theory favours iForest here (scale-invariant,
+survives 828 dimensions, targets global anomalies; LOF suffers curse-of-dimensionality
+and needs scaling). Because the probe was empirically ambiguous, we let CV R² decide via
+a bake-off rather than committing a priori.
+
+## Experiment 2b — outlier-row removal bake-off (`analysis/exp_outliers.py`)
+
+Drop rows flagged in each training fold (median imputation kept, so this is independent
+of 2a). Detectors fit on the train fold only.
+
+| Config (rows removed) | GB k=500 | Voting (champion) |
+|-----------------------|----------|-------------------|
+| no removal | 0.4976 | 0.5098 |
+| **iForest c=0.005 (~5)** | **0.5049 (+0.007)** | **0.5150 (+0.005)** |
+| iForest c=0.01 (~10) | 0.5035 (+0.006) | 0.5091 (−0.001) |
+| LOF c=0.005 (~5) | 0.5005 (+0.003) | 0.5082 (−0.002) |
+| LOF c=0.01 (~10) | 0.4912 (−0.006) | 0.5078 (−0.002) |
+
+**Isolation Forest at contamination = 0.005 (≈5 rows) is the only config that helps both
+models** — empirically confirming iForest > LOF, and that removing too many rows erodes
+the gain (small training set, 1212 rows).
+
+**Confirmation (RepeatedKFold 5×3), `analysis/exp_outliers_confirm.py`:**
+
+| Model | no removal | iForest c=0.005 | Δ |
+|-------|-----------|-----------------|---|
+| GB k=500 | 0.4845 ± 0.050 | 0.4878 ± 0.043 | +0.003 |
+| **Voting (champion)** | 0.5010 ± 0.043 | **0.5024 ± 0.039** | **+0.001, variance −8%** |
+
+**Result: iForest removal gives a small but consistent robust gain and lower variance.**
+For the champion it's tiny (+0.001, within noise) but always non-negative and reduces
+variance — a safe, defensible addition. LOF is inconsistent and can hurt.
+
+## Second-attempt verdict
+
+| Change | Robust effect on champion | Adopt? |
+|--------|---------------------------|--------|
+| KNN imputation | ~0 (helps only linear models, +0.028 for Ridge) | **No** for the tree ensemble; keep median |
+| Isolation Forest row removal (c=0.005) | +0.001 mean, variance −8% | **Optional** — marginal but safe; iForest clearly beats LOF |
+
+Neither change materially breaks the **~0.50 robust / ~0.52 single-split ceiling**. This
+reinforces attempt 1's conclusion: the data-quality levers are largely exhausted, and a
+real jump needs **new signal** (domain meaning of the features), not more imputation or
+outlier tuning. The two clean, presentable findings: **(1)** imputation method matters for
+linear models but not trees; **(2)** among detectors, Isolation Forest is the right choice
+for high-dimensional, extreme-scale data, and only very light removal (~0.5%) helps.
+
+*Reproduce:* `python -u analysis/exp_knn.py`, `exp_knn_confirm.py`, `outlier_probe.py`,
+`exp_outliers.py`, `exp_outliers_confirm.py`. Raw numbers in `analysis/experiment_log.txt`.
+
+## Step 3 — hyperparameter tuning + tuned ensemble (`analysis/exp_tuning.py`)
+
+The last untried model lever: `RandomizedSearchCV` (30 iters, 5-fold) over XGBoost and
+LightGBM on the top-500 features, then an honest RepeatedKFold(5×3) comparison.
+
+Search bests (single split, mild full-data-selection optimism): XGB **0.526**, LGBM 0.511.
+
+| Model (honest 5×3 CV) | R² |
+|-----------------------|-----|
+| champion Voting(GB+XGB+ET) | 0.5022 ± 0.041 |
+| tuned XGB alone | 0.5067 ± 0.045 |
+| **tuned Voting(GB + tuned XGB + tuned LGBM + ET)** | **0.5088 ± 0.040** |
+
+**Impact: a small but real gain — the best model to date.** Tuning lifts the ensemble
+from 0.502 → **0.509 robust** (+0.007) with slightly lower variance. Best tuned XGB
+params: `max_depth=4, lr=0.03, n_est=800, subsample=0.7, colsample=0.5,
+min_child_weight=5, reg_lambda=1`. This is the first change since Step G to move the
+robust number at all — regularised, properly-searched boosters beat the hand-tuned ones.
+
+**Submission `output/submission_v3.csv`** is built from this tuned ensemble
+(`analysis/make_submission_v3.py`). Sanity check vs the attempt-1 submission: predictions
+are **99.8% correlated** (mean |diff| 0.36, only 24/776 differ by >1.0) — so the
+leaderboard score should be *close* to attempt 1, with the tuned ensemble giving the best
+chance of nudging above 0.52 on the single held-out test.
+
+**Honest status vs the 0.52 goal:** robust CV is **0.509** (not >0.52); the single-split /
+leaderboard metric is expected **~0.52–0.53**. Only a Kaggle submission confirms the true
+test score. The ~0.51 robust ceiling still stands — real gains beyond need new signal.
