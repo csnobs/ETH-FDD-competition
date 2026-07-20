@@ -391,3 +391,32 @@ for high-dimensional, extreme-scale data, and only very light removal (~0.5%) he
 
 *Reproduce:* `python -u analysis/exp_knn.py`, `exp_knn_confirm.py`, `outlier_probe.py`,
 `exp_outliers.py`, `exp_outliers_confirm.py`. Raw numbers in `analysis/experiment_log.txt`.
+
+## Step 3 — hyperparameter tuning + tuned ensemble (`analysis/exp_tuning.py`)
+
+The last untried model lever: `RandomizedSearchCV` (30 iters, 5-fold) over XGBoost and
+LightGBM on the top-500 features, then an honest RepeatedKFold(5×3) comparison.
+
+Search bests (single split, mild full-data-selection optimism): XGB **0.526**, LGBM 0.511.
+
+| Model (honest 5×3 CV) | R² |
+|-----------------------|-----|
+| champion Voting(GB+XGB+ET) | 0.5022 ± 0.041 |
+| tuned XGB alone | 0.5067 ± 0.045 |
+| **tuned Voting(GB + tuned XGB + tuned LGBM + ET)** | **0.5088 ± 0.040** |
+
+**Impact: a small but real gain — the best model to date.** Tuning lifts the ensemble
+from 0.502 → **0.509 robust** (+0.007) with slightly lower variance. Best tuned XGB
+params: `max_depth=4, lr=0.03, n_est=800, subsample=0.7, colsample=0.5,
+min_child_weight=5, reg_lambda=1`. This is the first change since Step G to move the
+robust number at all — regularised, properly-searched boosters beat the hand-tuned ones.
+
+**Submission `output/submission_v3.csv`** is built from this tuned ensemble
+(`analysis/make_submission_v3.py`). Sanity check vs the attempt-1 submission: predictions
+are **99.8% correlated** (mean |diff| 0.36, only 24/776 differ by >1.0) — so the
+leaderboard score should be *close* to attempt 1, with the tuned ensemble giving the best
+chance of nudging above 0.52 on the single held-out test.
+
+**Honest status vs the 0.52 goal:** robust CV is **0.509** (not >0.52); the single-split /
+leaderboard metric is expected **~0.52–0.53**. Only a Kaggle submission confirms the true
+test score. The ~0.51 robust ceiling still stands — real gains beyond need new signal.

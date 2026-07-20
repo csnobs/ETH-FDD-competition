@@ -175,3 +175,18 @@ base Voting k=500                                R^2 = 0.5187 +/- 0.0395
    Voting k=500   iForest c=0.005  R^2 = 0.5024 +/- 0.0392
 ===== END CONFIRM =====
 
+
+===== STEP 3: hyperparameter search + tuned ensemble =====
+-- RandomizedSearchCV: XGBoost --
+   best XGB search R^2 = 0.5258
+   best XGB params = {'subsample': 0.7, 'reg_lambda': 1.0, 'n_estimators': 800, 'min_child_weight': 5, 'max_depth': 4, 'learning_rate': 0.03, 'colsample_bytree': 0.5}
+-- RandomizedSearchCV: LightGBM --
+   best LGBM search R^2 = 0.5112
+   best LGBM params = {'subsample_freq': 1, 'subsample': 0.6, 'reg_lambda': 0.5, 'num_leaves': 15, 'n_estimators': 1500, 'min_child_samples': 30, 'learning_rate': 0.01, 'colsample_bytree': 0.3}
+
+-- honest RepeatedKFold(5x3), per-fold selection --
+   champion Voting(GB+XGB+ET)            R^2 = 0.5022 +/- 0.0412
+   tuned Voting(GB+XGBt+LGBMt+ET)        R^2 = 0.5088 +/- 0.0396
+   tuned XGB alone                       R^2 = 0.5067 +/- 0.0451
+===== END STEP 3 =====
+
